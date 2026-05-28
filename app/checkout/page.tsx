@@ -1,0 +1,398 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Navbar from "../components/Navbar";
+import Footer from "../components/Footer";
+import { useCart } from "../components/CartContext";
+// import { supabase } from "../lib/supabaseClient"; // ❌ Supabase disabled
+import { useRouter } from "next/navigation";
+
+const WHATSAPP_NUMBER = "6305419750";
+
+type Shipping = {
+  fullName: string;
+  email: string;
+  phone: string;
+  country: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zip: string;
+  deliveryNotes: string;
+};
+
+const STORAGE_KEY = "konaseema_shipping_v1";
+
+/* ---------- TABLE FOR WHATSAPP ---------- */
+function makeTable(headers: string[], rows: string[][]) {
+  const widths = headers.map((h, i) =>
+    Math.max(h.length, ...rows.map((r) => (r[i] ? r[i].length : 0)))
+  );
+
+  const line = (cols: string[]) =>
+    cols.map((c, i) => c + " ".repeat(widths[i] - c.length)).join("  ");
+
+  const sep = widths.map((w) => "-".repeat(w)).join("  ");
+  return [line(headers), sep, ...rows.map(line)].join("\n");
+}
+
+export default function CheckoutPage() {
+  const cart = useCart();
+  const router = useRouter();
+
+  /* ================= LOGIN MODAL (DISABLED) ================= */
+  // const [showLoginModal, setShowLoginModal] = useState(false);
+
+  /* ================= SHIPPING ================= */
+  const [shipping, setShipping] = useState<Shipping>({
+    fullName: "",
+    email: "",
+    phone: "",
+    country: "India",
+    address1: "",
+    address2: "",
+    city: "",
+    state: "",
+    zip: "",
+    deliveryNotes: "",
+  });
+
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  /* ================= COUPON (DB LOGIC DISABLED) ================= */
+  const [coupon, setCoupon] = useState("");
+  const [discount, setDiscount] = useState(0);
+  const [couponMsg, setCouponMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setShipping((p) => ({ ...p, ...JSON.parse(raw) }));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(shipping));
+    } catch {}
+  }, [shipping]);
+
+  /* ================= VALIDATION ================= */
+  const errors = useMemo(() => {
+    const e: Record<string, string> = {};
+    if (!shipping.fullName.trim()) e.fullName = "Full name is required";
+    if (!shipping.email.trim()) e.email = "Email is required";
+    if (!shipping.phone.trim()) e.phone = "Phone is required";
+    if (!shipping.country.trim()) e.country = "Country is required";
+    if (!shipping.address1.trim()) e.address1 = "Address is required";
+    if (!shipping.city.trim()) e.city = "City is required";
+    if (!shipping.state.trim()) e.state = "State is required";
+    if (!shipping.zip.trim()) e.zip = "ZIP is required";
+    return e;
+  }, [shipping]);
+
+  const isValid = useMemo(() => Object.keys(errors).length === 0, [errors]);
+
+  /* ================= HELPERS ================= */
+  const formatPrice = (v: number) => `$${v.toFixed(2)}`;
+
+  const getWeightInKg = (w: string) => {
+    if (!w) return 0;
+    const value = parseFloat(w);
+    if (isNaN(value)) return 0;
+    if (w.toLowerCase().includes("kg")) return value;
+    if (w.toLowerCase().includes("g")) return value / 1000;
+    return 0;
+  };
+
+  const getShipping = (weightKg: number) => {
+    if (weightKg <= 5) return 29;
+    if (weightKg <= 7.5) return 35;
+    if (weightKg <= 10) return 40;
+    if (weightKg <= 15) return 50;
+    return 60;
+  };
+
+  /* ================= TOTALS ================= */
+  const subtotal = cart.items.reduce(
+    (s: number, it: any) => s + Number(it.price) * Number(it.qty),
+    0
+  );
+
+  const totalWeight = cart.items.reduce((sum: number, i: any) => {
+    const kg = getWeightInKg(i.weight);
+    return sum + kg * i.qty;
+  }, 0);
+
+  const shippingFee = cart.items.length > 0 ? getShipping(totalWeight) : 0;
+
+  const total = Math.max(0, subtotal - discount + shippingFee);
+
+  /* ================= APPLY COUPON (DISABLED DB) ================= */
+  const applyCoupon = async () => {
+    setCouponMsg("Coupon system temporarily disabled");
+  };
+
+  /* ================= PLACE ORDER (WHATSAPP ONLY) ================= */
+  const onPlaceOrder = async () => {
+    setTouched({
+      fullName: true,
+      email: true,
+      phone: true,
+      country: true,
+      address1: true,
+      city: true,
+      state: true,
+      zip: true,
+    });
+
+    if (!isValid) {
+      setSaveError("Please fill all required fields.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setSaveError(null);
+
+      const rows = cart.items.map((it: any) => [
+        it.name,
+        String(it.qty),
+        `$${it.price}`,
+        `$${(it.qty * it.price).toFixed(2)}`,
+      ]);
+
+      const table = makeTable(["Item", "Qty", "Price", "Total"], rows);
+
+      const message = `
+🛒 *New Order*
+
+${table}
+
+Subtotal: ${formatPrice(subtotal)}
+Shipping: ${formatPrice(shippingFee)}
+Total: *${formatPrice(total)}*
+
+👤 *Customer*
+${shipping.fullName}
+${shipping.phone}
+${shipping.address1}, ${shipping.city}
+${shipping.state}, ${shipping.zip}
+${shipping.country}
+
+Notes: ${shipping.deliveryNotes || "None"}
+`;
+
+      cart.clear();
+      setSuccessMsg(`Redirecting to WhatsApp...`);
+
+      const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+      window.location.href = url;
+    } catch (e: any) {
+      setSaveError("Failed to place order");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputBase =
+    "w-full px-4 py-3 rounded-2xl border border-gold bg-[#fffaf2]";
+  const inputErr = "border-red-400";
+  const showErr = (k: keyof Shipping) => touched[k] && errors[k];
+
+  return (
+    <>
+      <Navbar />
+
+      <main className="min-h-screen bg-cream pt-28 pb-16">
+        <div className="max-w-6xl mx-auto px-5">
+          <h1 className="text-4xl font-extrabold text-brown mb-8">
+            Checkout
+          </h1>
+
+          <div className="grid lg:grid-cols-2 gap-8">
+            <section className="card p-6">
+              <h2 className="text-xl font-bold mb-4">Order Summary</h2>
+
+              {cart.items.map((it: any) => (
+                <div key={it.id} className="flex justify-between mb-2">
+                  <span>
+                    {it.name} × {it.qty}
+                  </span>
+                  <span>{formatPrice(it.qty * it.price)}</span>
+                </div>
+              ))}
+
+              <div className="border-t mt-5 pt-4 space-y-2 font-semibold">
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <span>{formatPrice(subtotal)}</span>
+                </div>
+
+                {discount > 0 && (
+                  <div className="flex justify-between text-green-700">
+                    <span>Discount</span>
+                    <span>-{formatPrice(discount)}</span>
+                  </div>
+                )}
+
+                {cart.items.length > 0 && (
+                  <div className="flex justify-between">
+                    <span>Shipping ({totalWeight.toFixed(1)} kg)</span>
+                    <span>{formatPrice(shippingFee)}</span>
+                  </div>
+                )}
+
+                <div className="flex justify-between text-lg border-t pt-2">
+                  <span>Total</span>
+                  <span>{formatPrice(total)}</span>
+                </div>
+              </div>
+            </section>
+
+            <section className="card p-6">
+              <h2 className="text-xl font-bold mb-4">Shipping Details</h2>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <Field
+                  label="Full Name *"
+                  value={shipping.fullName}
+                  onChange={(v) => setShipping({ ...shipping, fullName: v })}
+                  className={`${inputBase} ${
+                    showErr("fullName") ? inputErr : ""
+                  }`}
+                />
+                <Field
+                  label="Email *"
+                  value={shipping.email}
+                  onChange={(v) => setShipping({ ...shipping, email: v })}
+                  className={`${inputBase} ${
+                    showErr("email") ? inputErr : ""
+                  }`}
+                />
+                <Field
+                  label="Phone *"
+                  value={shipping.phone}
+                  onChange={(v) => setShipping({ ...shipping, phone: v })}
+                  className={`${inputBase} ${
+                    showErr("phone") ? inputErr : ""
+                  }`}
+                />
+                <Field
+                  label="Country *"
+                  value={shipping.country}
+                  onChange={(v) => setShipping({ ...shipping, country: v })}
+                  className={`${inputBase} ${
+                    showErr("country") ? inputErr : ""
+                  }`}
+                />
+                <Field
+                  label="Address Line 1 *"
+                  value={shipping.address1}
+                  onChange={(v) => setShipping({ ...shipping, address1: v })}
+                  className={`${inputBase} ${
+                    showErr("address1") ? inputErr : ""
+                  }`}
+                />
+                <Field
+                  label="Address Line 2"
+                  value={shipping.address2}
+                  onChange={(v) => setShipping({ ...shipping, address2: v })}
+                  className={inputBase}
+                />
+                <Field
+                  label="City *"
+                  value={shipping.city}
+                  onChange={(v) => setShipping({ ...shipping, city: v })}
+                  className={`${inputBase} ${
+                    showErr("city") ? inputErr : ""
+                  }`}
+                />
+                <Field
+                  label="State *"
+                  value={shipping.state}
+                  onChange={(v) => setShipping({ ...shipping, state: v })}
+                  className={`${inputBase} ${
+                    showErr("state") ? inputErr : ""
+                  }`}
+                />
+                <Field
+                  label="ZIP / Postal *"
+                  value={shipping.zip}
+                  onChange={(v) => setShipping({ ...shipping, zip: v })}
+                  className={`${inputBase} ${
+                    showErr("zip") ? inputErr : ""
+                  }`}
+                />
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold mb-1">
+                    Delivery Notes
+                  </label>
+                  <textarea
+                    className={`${inputBase} min-h-[110px]`}
+                    value={shipping.deliveryNotes}
+                    onChange={(e) =>
+                      setShipping({
+                        ...shipping,
+                        deliveryNotes: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              {saveError && (
+                <div className="mt-4 text-sm text-red-600">{saveError}</div>
+              )}
+              {successMsg && (
+                <div className="mt-4 text-sm text-green-700">
+                  {successMsg}
+                </div>
+              )}
+
+              <button
+                className="btn-primary mt-6 w-full"
+                onClick={onPlaceOrder}
+                disabled={saving || cart.items.length === 0}
+              >
+                {saving
+                  ? "Saving..."
+                  : `Place Order (${formatPrice(total)})`}
+              </button>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      <Footer />
+    </>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  className: string;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-semibold mb-1">{label}</label>
+      <input
+        className={className}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
