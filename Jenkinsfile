@@ -2,13 +2,13 @@ pipeline {
     agent any
 
     environment {
-    NEXT_PUBLIC_SUPABASE_URL = "https://dummy.supabase.co"
-    NEXT_PUBLIC_SUPABASE_ANON_KEY = "dummy-anon-key"
-}
+        NEXT_PUBLIC_SUPABASE_URL = "https://dummy.supabase.co"
+        NEXT_PUBLIC_SUPABASE_ANON_KEY = "dummy-anon-key"
+    }
 
     stages {
 
-        stage('Clone Code') {
+        stage('Checkout Code') {
             steps {
                 git branch: 'main', url: 'https://github.com/sai-123-123/Devops-project'
             }
@@ -20,7 +20,13 @@ pipeline {
             }
         }
 
-        stage('Build Next.js App') {
+        stage('Run Tests') {
+            steps {
+                sh 'npm test'
+            }
+        }
+
+        stage('Build App') {
             steps {
                 sh 'npm run build'
             }
