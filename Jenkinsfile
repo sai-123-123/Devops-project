@@ -2,9 +2,9 @@ pipeline {
     agent any
 
     environment {
-        NEXT_PUBLIC_SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
-        NEXT_PUBLIC_SUPABASE_ANON_KEY = "YOUR_ANON_KEY"
-    }
+    NEXT_PUBLIC_SUPABASE_URL = "https://dummy.supabase.co"
+    NEXT_PUBLIC_SUPABASE_ANON_KEY = "dummy-anon-key"
+}
 
     stages {
 
