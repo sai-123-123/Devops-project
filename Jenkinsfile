@@ -1,5 +1,11 @@
 pipeline {
     agent any
+
+    environment {
+        NEXT_PUBLIC_SUPABASE_URL = "YOUR_SUPABASE_URL"
+        NEXT_PUBLIC_SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY"
+    }
+
     stages {
 
         stage('Clone Code') {
@@ -19,6 +25,5 @@ pipeline {
                 sh 'npm run build'
             }
         }
-
     }
 }
