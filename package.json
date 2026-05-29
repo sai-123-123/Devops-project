@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "test": "jest",
+    "lint": "next lint",
     "start": "next start"
   },
   "dependencies": {
